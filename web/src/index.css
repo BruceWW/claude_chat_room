@@ -1,0 +1,65 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Markdown content styles */
+.msg-content {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.msg-content pre {
+  background: #0d0d0d;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 6px 0;
+}
+
+.msg-content code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 13px;
+}
+
+.msg-content :not(pre) > code {
+  background: #222;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.msg-content p {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.msg-content ul, .msg-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.msg-content table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
+.msg-content th, .msg-content td {
+  border: 1px solid #333;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.msg-content blockquote {
+  border-left: 3px solid #444;
+  padding-left: 10px;
+  color: #aaa;
+  margin: 4px 0;
+}
