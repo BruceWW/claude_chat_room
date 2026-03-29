@@ -1,7 +1,0 @@
-room:
-  name: "my-workspace"
-  mode: "free"
-  max_turns_per_round: 3
-  cooldown_seconds: 2
-
-agents: []
