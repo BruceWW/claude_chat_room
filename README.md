@@ -13,9 +13,20 @@ A lightweight tool that bridges multiple Claude Code CLI instances into a shared
 ### Install
 
 ```bash
-pip install -r requirements.txt
-cd web && npm install && cd ..
+bash setup.sh
 ```
+
+`setup.sh` 会自动检查 prerequisites、安装 Python/Node 依赖、build 前端、生成默认 `config.yaml`。
+
+<details>
+<summary>手动安装</summary>
+
+```bash
+pip install -r requirements.txt
+cd web && npm install && npm run build && cd ..
+```
+
+</details>
 
 ### Configure
 
