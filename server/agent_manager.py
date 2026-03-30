@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from typing import Optional
 
@@ -14,24 +15,27 @@ logger = logging.getLogger(__name__)
 
 SILENT_TOKEN = "[SILENT]"
 
-CHATROOM_SYSTEM_PROMPT = """You are participating in a multi-agent chat room.
-Other participants: {participants}
-The human user's name is "user".
+# Fixed common rules injected into every agent's system prompt, always.
+ROUTING_PROMPT = """ROUTING RULES (@mention = message routing):
+- To send a message to someone, @mention them: "@pm what's the plan?" → goes to pm only.
+- To delegate a task, @mention the target agent. They will receive your message.
+- When reporting results back, @mention the person who originally asked you.
+- A message with no @mention is broadcast — all agents can see it.
 
-ROUTING RULES:
-- @mention IS message routing. To talk to someone, @mention them.
-  "@dcc what time?" → sends to dcc. "@user the answer is X" → sends to user.
-- To delegate a task to another agent, @mention that agent.
-- When reporting results back, @mention the person who asked you.
-
-WHEN TO USE [SILENT] (respond ONLY with [SILENT], nothing else):
-- After you have relayed information to the person who asked — task is done, stop.
-- When someone says "thanks", "got it", "ok" — do NOT reply, use [SILENT].
-- When you receive information that completes YOUR task and you've already reported back.
-- When the conversation is clearly finished and no action is needed.
+WHEN TO RESPOND WITH [SILENT] (reply ONLY with the token [SILENT], nothing else):
+- After you relayed your result to the requester — task is done, stop here.
+- When someone says "thanks", "got it", "ok", "noted" — do NOT reply.
+- When you receive information that completes your current task and you've already reported back.
+- When the conversation is clearly finished and no further action is needed.
+- When a broadcast message is not relevant to your role — stay silent.
 - When in doubt, prefer [SILENT] over small talk.
 
-Be concise. Do not make small talk. Answer the question, relay the result, then stop.
+Be concise. Answer the question, relay the result, then stop."""
+
+# Per-session context: who else is in the room and what is this agent's role.
+CHATROOM_CONTEXT_PROMPT = """You are participating in a multi-agent chat room.
+Other participants: {participants}
+The human user's name is "user".
 {custom_prompt}"""
 
 
@@ -121,6 +125,19 @@ class AgentManager:
 
     async def _agent_loop(self, state: AgentState):
         try:
+            # Auto-init: if CLAUDE.md doesn't exist, run /init
+            claude_md = os.path.join(state.config.directory, "CLAUDE.md")
+            if not os.path.exists(claude_md):
+                logger.info(f"{state.name}: no CLAUDE.md found, running /init")
+                state.thinking = True
+                await self._broadcast_status(state)
+                try:
+                    await self._call_sdk(state, "/init")
+                except Exception:
+                    logger.exception(f"{state.name}: /init failed")
+                state.thinking = False
+                await self._broadcast_status(state)
+
             while True:
                 first = await state.inbox.get()
                 messages = [first]
@@ -143,6 +160,10 @@ class AgentManager:
                     response_text = await self._call_sdk(state, prompt)
                 except Exception:
                     logger.exception(f"SDK error for {state.name}")
+                    if state.session_id:
+                        logger.warning(f"{state.name}: clearing stale session {state.session_id}")
+                        state.session_id = None
+                        await self.db.save_session(state.name, "")
                     state.thinking = False
                     await self._broadcast_status(state)
                     continue
@@ -169,7 +190,7 @@ class AgentManager:
                 #   Targeted input → reply to sender.
                 #   Broadcast input → broadcast.
 
-                reply_to = "all"
+                reply_to: list[str] | None = None  # None = broadcast
                 skip_delivery = False
                 sender = messages[0].from_name
                 known_names = set(self.agents.keys()) | {"user"}
@@ -177,28 +198,30 @@ class AgentManager:
                 # Case 1: check if this is a delegation return
                 if sender in state.pending_delegations:
                     original_requester = state.pending_delegations.pop(sender)
-                    reply_to = original_requester
+                    reply_to = [original_requester]
                     logger.info(
                         f"{state.name}: delegation return from {sender}, "
                         f"routing to {original_requester}"
                     )
                 else:
-                    # Parse @mention for potential new delegation
-                    mention_match = re.search(
-                        r"@([a-zA-Z0-9_-]+)", response_text
-                    )
-                    mentioned = None
-                    if mention_match:
-                        m = mention_match.group(1)
-                        if m in known_names and m != state.name and m != sender:
-                            mentioned = m
+                    # Parse all @mentions for potential new delegation
+                    mention_matches = re.findall(r"@([a-zA-Z0-9_-]+)", response_text)
+                    mentioned_agents = [
+                        m for m in mention_matches
+                        if m in self.agents and m != state.name and m != sender
+                    ]
+                    mentioned_others = [
+                        m for m in mention_matches
+                        if m in known_names and m not in self.agents and m != state.name
+                    ]
 
-                    if mentioned and mentioned in self.agents:
-                        # Case 2: delegating to another agent
-                        reply_to = mentioned
-                        state.pending_delegations[mentioned] = sender
+                    if mentioned_agents:
+                        # Case 2: delegating to other agent(s)
+                        reply_to = mentioned_agents
+                        for agent in mentioned_agents:
+                            state.pending_delegations[agent] = sender
                         logger.info(
-                            f"{state.name}: delegating to {mentioned}, "
+                            f"{state.name}: delegating to {mentioned_agents}, "
                             f"will return result to {sender}"
                         )
                     else:
@@ -206,23 +229,24 @@ class AgentManager:
                         targeted_msgs = [
                             m for m in messages if not m.is_broadcast
                         ]
-                        if mentioned:
-                            # @mention a known name (e.g. @user)
-                            reply_to = mentioned
+                        if mentioned_others:
+                            reply_to = mentioned_others
                         elif targeted_msgs:
-                            reply_to = targeted_msgs[0].from_name
-                        # else: broadcast (reply_to stays "all")
+                            reply_to = [targeted_msgs[0].from_name]
+                        # else: broadcast (reply_to stays None)
 
                         # Ping-pong detection: agent→agent with no
                         # delegation, no @mention, AND the target agent is
                         # NOT expecting our reply (no pending delegation
                         # from them to us) → likely small talk, skip.
                         if (
-                            reply_to in self.agents
-                            and not mentioned
+                            reply_to is not None
+                            and len(reply_to) == 1
+                            and reply_to[0] in self.agents
+                            and not mentioned_others
                             and any(m.from_type == "agent" for m in messages)
                         ):
-                            target_state = self.agents.get(reply_to)
+                            target_state = self.agents.get(reply_to[0])
                             target_expects_reply = (
                                 target_state
                                 and state.name in target_state.pending_delegations
@@ -230,7 +254,7 @@ class AgentManager:
                             if not target_expects_reply:
                                 skip_delivery = True
                                 logger.info(
-                                    f"{state.name} → {reply_to}: no delegation/"
+                                    f"{state.name} → {reply_to[0]}: no delegation/"
                                     f"@mention, skipping to prevent loop"
                                 )
 
@@ -277,9 +301,12 @@ class AgentManager:
                 a.name for a in self.agents.values() if a.name != state.name
             )
             custom = state.config.system_prompt or ""
-            options.system_prompt = CHATROOM_SYSTEM_PROMPT.format(
+            context_prompt = CHATROOM_CONTEXT_PROMPT.format(
                 participants=participants, custom_prompt=custom
             )
+            global_prompt = self.control.config.global_system_prompt or ""
+            parts = [p for p in [global_prompt.strip(), ROUTING_PROMPT, context_prompt.strip()] if p]
+            options.system_prompt = "\n\n".join(parts)
             if state.config.model:
                 options.model = state.config.model
 

@@ -4,7 +4,7 @@ export interface ChatMessage {
   from_type: "agent" | "human";
   from_name: string;
   from_directory?: string;
-  to: string;
+  to: string[] | null;
   content: string;
   timestamp: string;
   metadata: Record<string, unknown>;

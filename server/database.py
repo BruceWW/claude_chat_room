@@ -3,6 +3,22 @@ from __future__ import annotations
 import json
 
 import aiosqlite
+
+
+def _parse_to(raw: str | None) -> list[str] | None:
+    """Robustly parse the 'to' DB column regardless of legacy format."""
+    if raw is None:
+        return None
+    try:
+        val = json.loads(raw)
+        if isinstance(val, list):
+            return val or None
+        if isinstance(val, str):
+            return None if val in ("all", "") else [val]
+    except Exception:
+        pass
+    # plain string fallback (not valid JSON)
+    return None if raw in ("all", "") else [raw]
 from server.models import ChatMessage
 
 
@@ -21,7 +37,7 @@ class Database:
                 from_type TEXT NOT NULL,
                 from_name TEXT NOT NULL,
                 from_directory TEXT,
-                "to" TEXT NOT NULL DEFAULT 'all',
+                "to" TEXT,
                 content TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 metadata TEXT NOT NULL DEFAULT '{}'
@@ -34,6 +50,25 @@ class Database:
                 session_id TEXT NOT NULL
             );
             """
+        )
+        # Migrate old string values to JSON array format
+        # "all" or NULL → NULL (broadcast)
+        await self._db.execute(
+            'UPDATE messages SET "to" = NULL WHERE "to" = \'all\''
+        )
+        # plain string "pm" → '["pm"]'
+        await self._db.execute(
+            """UPDATE messages SET "to" = '["' || "to" || '"]'
+               WHERE "to" IS NOT NULL
+               AND substr("to", 1, 1) != '['
+               AND substr("to", 1, 1) != '"'"""
+        )
+        # JSON-encoded string '"pm"' → '["pm"]'
+        await self._db.execute(
+            """UPDATE messages SET "to" = '[' || "to" || ']'
+               WHERE "to" IS NOT NULL
+               AND substr("to", 1, 1) = '"'
+               AND substr("to", length("to"), 1) = '"'"""
         )
         await self._db.commit()
 
@@ -52,7 +87,7 @@ class Database:
                 msg.from_type,
                 msg.from_name,
                 msg.from_directory,
-                msg.to,
+                json.dumps(msg.to) if msg.to is not None else None,
                 msg.content,
                 msg.timestamp.isoformat(),
                 json.dumps(msg.metadata),
@@ -96,7 +131,7 @@ class Database:
                 from_type=r[2],
                 from_name=r[3],
                 from_directory=r[4],
-                to=r[5],
+                to=_parse_to(r[5]),
                 content=r[6],
                 timestamp=r[7],
                 metadata=json.loads(r[8]) if r[8] else {},
@@ -119,3 +154,8 @@ class Database:
         )
         row = await cursor.fetchone()
         return row[0] if row else None
+
+    async def clear_all(self, room_id: str) -> None:
+        await self._db.execute("DELETE FROM messages WHERE room_id = ?", (room_id,))
+        await self._db.execute("DELETE FROM sessions")
+        await self._db.commit()

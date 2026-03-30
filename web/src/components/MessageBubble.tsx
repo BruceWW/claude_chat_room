@@ -24,8 +24,10 @@ export function MessageBubble({ msg }: { msg: ChatMessage }) {
         <span style={{ color, fontWeight: 600 }}>
           {isHuman ? "You" : msg.from_name}
         </span>
-        {msg.to !== "all" && (
-          <span style={{ color: "#999", fontSize: 12 }}>→ @{msg.to}</span>
+        {msg.to && msg.to.length > 0 && (
+          <span style={{ color: "#999", fontSize: 12 }}>
+            → {msg.to.map((t) => `@${t}`).join(" ")}
+          </span>
         )}
         <span style={{ color: "#999", fontSize: 12, marginLeft: "auto" }}>
           {time}

@@ -37,12 +37,13 @@ room:
   name: "my-workspace"
   max_turns_per_round: 3
   cooldown_seconds: 2
+  global_system_prompt: ""  # Optional. Prepended to all agents' system prompts.
 
 agents:
   - name: "cdp-agent"
     directory: "/path/to/your/cdp/project"
     system_prompt: "You are a CDP expert"
-    model: "sonnet"
+    model: "claude-sonnet-4-6"
     permission_mode: "acceptEdits"       # default | acceptEdits | bypassPermissions
     allowed_tools: ["Read", "Glob", "Grep"]
 
@@ -76,23 +77,30 @@ Then open http://localhost:3000
 
 - **Multi-agent chat room** with real-time WebSocket updates
 - **Delegation chain** — ask agent A to consult agent B, results route back automatically
-- **@mention routing** — `@agent_name` directs messages to specific agents
+- **@mention routing** — `@agent_name` directs messages to specific agents; supports multiple recipients (`@backend @frontend message`)
+- **@mention autocomplete** — typing `@` shows a live-filtered agent picker with status indicators; keyboard navigable (↑↓ Tab Esc)
 - **Delegation tracking** — agents remember who asked them, replies route back to the original requester even if the LLM @mentions the wrong person
 - **Anti-loop** — turn limits, cooldown, ping-pong detection between agents
 - **Per-agent permission control** — `permission_mode` and `allowed_tools` per agent
-- **Web config editor** — edit room and agent settings via form UI or raw YAML
-- **Message persistence** — SQLite with cursor pagination
+- **Web config editor** — edit room and agent settings via form UI or raw YAML; Save and Restart are separate actions
+- **Templates** — one-click presets for common team setups (dev team, code review, research, data team, solo debug)
+- **Global system prompt** — configurable prompt prepended to all agents; routing and [SILENT] rules are always injected as a fixed base layer
+- **Clear conversation** — clear all messages and reset agent sessions from the UI
+- **Auto-init** — agents without a CLAUDE.md automatically run `/init` on first start
+- **Message persistence** — SQLite with cursor pagination; `to` field supports `null` (broadcast) or `["agent", ...]` (targeted)
 - **Dynamic agent management** — add/remove/restart agents via API or UI
 - **Markdown rendering** — code blocks, tables, lists with syntax highlighting
-- **Auto-reconnect** — frontend reconnects on connection loss
+- **Auto-reconnect** — frontend reconnects on connection loss with message deduplication
+- **Multiline input** — textarea input with Ctrl+Enter to send, Enter for newline
 
 ## Message Routing Rules
 
-1. **Broadcast (to: all)** — all agents see it, each decides whether to respond
-2. **Targeted (to: agent)** — only the target agent receives it
-3. **@mention in response** — routes to the mentioned agent (delegation)
-4. **No @mention + targeted input** — replies to sender
-5. **Delegation return** — when agent B replies to agent A who delegated, result auto-routes back to whoever originally asked agent A
+1. **Broadcast (`to: null`)** — all agents see it, each decides whether to respond
+2. **Targeted (`to: ["agent"]`)** — only the target agent receives it
+3. **Multi-target (`to: ["a", "b"]`)** — both agents receive the message; use `@a @b message` syntax
+4. **@mention in response** — routes to the mentioned agent (delegation)
+5. **No @mention + targeted input** — replies to sender
+6. **Delegation return** — when agent B replies to agent A who delegated, result auto-routes back to whoever originally asked agent A
 
 ## API
 
@@ -101,12 +109,14 @@ Then open http://localhost:3000
 | GET | /api/rooms | List rooms |
 | GET | /api/rooms/{id}/messages?limit=50&before=msg_xxx | Message history |
 | POST | /api/rooms/{id}/messages | Send message |
+| DELETE | /api/rooms/{id}/messages | Clear all messages and agent sessions |
 | GET | /api/agents | Agent list + status |
 | POST | /api/agents | Add agent |
 | DELETE | /api/agents/{name} | Remove agent |
 | POST | /api/agents/{name}/restart | Restart agent |
 | GET | /api/config | Get config.yaml content |
 | PUT | /api/config | Save config.yaml (with validation) |
+| POST | /api/restart | Reload config and restart all agents |
 | WS | /ws/rooms/{id} | Real-time message stream |
 
 ## Architecture
@@ -119,14 +129,16 @@ React UI  <-->  FastAPI Server  <-->  Claude Code SDK agents
 - **Message Bus** — in-memory asyncio pub/sub with sender exclusion and targeting
 - **Agent Manager** — per-agent inbox queue, sequential SDK calls, session persistence, delegation tracking
 - **Conversation Control** — turn limits, cooldown
-- **Storage** — SQLite for messages and session IDs
+- **Storage** — SQLite for messages and session IDs; `to` column is JSON (`null` for broadcast, `["name"]` for targeted)
+- **Prompt layering** — `global_system_prompt` (user config) → `ROUTING_PROMPT` (fixed @mention and [SILENT] rules) → per-agent context (participants + role)
 - **Frontend** — React + TypeScript + WebSocket, dark theme
 
 ## TODO
 
 - [ ] **权限请求转发到页面审批** — agent 遇到需要授权的操作时，通过 WebSocket 推送到前端，人类在页面上批准/拒绝。目前受限于 Python SDK 的 `can_use_tool` 回调有已知 bug（[#159](https://github.com/anthropics/claude-agent-sdk-python/issues/159)），等 SDK 稳定后实现。当前 workaround：用 `permission_mode: acceptEdits` + `allowed_tools` 预批准常用工具。
-- [ ] **多房间支持** — 目前只有一个默认房间
+- [ ] **多房间支持** — 目前只有一个默认房间，计划支持 config.yaml 静态配置多房间 + 前端侧边栏切换
 - [ ] **agent 状态实时推送** — thinking 指示器通过 WebSocket 实时更新
+- [ ] **@mention 中间输入修复** — 受控 textarea 在文本中间输入 `@` 时 selectionStart 可能因 re-render 偏移，影响 mention 触发（已知 edge case，低频）
 
 ## Tech Stack
 

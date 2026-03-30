@@ -40,7 +40,7 @@ class MessageBus:
                 continue
             if sub.name == msg.from_name:
                 continue
-            if not msg.is_broadcast and msg.to != sub.name:
+            if not msg.is_broadcast and sub.name not in msg.to:
                 continue
             await self._deliver(sub, msg)
 

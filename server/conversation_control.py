@@ -26,5 +26,5 @@ class ConversationControl:
     def on_human_message(self):
         self._turn_counts.clear()
 
-    def should_deliver(self, agent_name: str, to: str) -> bool:
+    def should_deliver(self, agent_name: str, to: list[str] | None) -> bool:
         return True

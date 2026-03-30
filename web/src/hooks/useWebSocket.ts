@@ -5,7 +5,8 @@ interface UseWebSocketReturn {
   messages: ChatMessage[];
   agents: AgentStatus[];
   connected: boolean;
-  sendMessage: (content: string, to?: string) => void;
+  sendMessage: (content: string, to?: string[] | null) => void;
+  clearMessages: () => void;
 }
 
 export function useWebSocket(roomId: string): UseWebSocketReturn {
@@ -33,9 +34,17 @@ export function useWebSocket(roomId: string): UseWebSocketReturn {
     ws.onmessage = (event) => {
       const msg: WSMessage = JSON.parse(event.data);
       if (msg.type === "chat_message") {
-        setMessages((prev) => [...prev, msg.data as ChatMessage]);
+        const incoming = msg.data as ChatMessage;
+        setMessages((prev) =>
+          prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
+        );
       } else if (msg.type === "agent_status") {
         setAgents(msg.data as AgentStatus[]);
+      } else if (msg.type === "system_event") {
+        const event = msg.data as { event: string };
+        if (event?.event === "messages_cleared") {
+          setMessages([]);
+        }
       }
     };
 
@@ -45,7 +54,7 @@ export function useWebSocket(roomId: string): UseWebSocketReturn {
   }, [roomId, reconnectTick]);
 
   const sendMessage = useCallback(
-    (content: string, to: string = "all") => {
+    (content: string, to: string[] | null = null) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -60,5 +69,9 @@ export function useWebSocket(roomId: string): UseWebSocketReturn {
     []
   );
 
-  return { messages, agents, connected, sendMessage };
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  return { messages, agents, connected, sendMessage, clearMessages };
 }

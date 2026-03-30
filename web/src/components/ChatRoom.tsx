@@ -6,9 +6,24 @@ import { MessageInput } from "./MessageInput";
 import { ConfigEditor } from "./ConfigEditor";
 
 export function ChatRoom() {
-  const { messages, agents, connected, sendMessage } = useWebSocket("default");
+  const { messages, agents, connected, sendMessage, clearMessages } = useWebSocket("default");
   const bottomRef = useRef<HTMLDivElement>(null);
   const [configOpen, setConfigOpen] = useState(false);
+
+  const handleClear = async () => {
+    if (!window.confirm("This will clear all messages and reset all agent sessions. Continue?")) return;
+    try {
+      const resp = await fetch("/api/rooms/default/messages", { method: "DELETE" });
+      if (resp.ok) {
+        clearMessages();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        window.alert(data.detail || "Failed to clear messages");
+      }
+    } catch {
+      window.alert("Network error while clearing messages");
+    }
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,9 +60,23 @@ export function ChatRoom() {
             {connected ? "connected" : "disconnected"}
           </span>
           <button
-            onClick={() => setConfigOpen(true)}
+            onClick={handleClear}
             style={{
               marginLeft: "auto",
+              padding: "4px 10px",
+              borderRadius: 4,
+              border: "1px solid #FF6B6B44",
+              background: "transparent",
+              color: "#FF6B6B",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => setConfigOpen(true)}
+            style={{
               padding: "4px 10px",
               borderRadius: 4,
               border: "1px solid #444",

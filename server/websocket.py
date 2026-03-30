@@ -19,9 +19,14 @@ def setup_websocket(app: FastAPI, state):
 
         async def send_to_client(msg: ChatMessage):
             try:
-                await websocket.send_json(
-                    {"type": "chat_message", "data": msg.model_dump(mode="json")}
-                )
+                if msg.from_type == "system":
+                    await websocket.send_json(
+                        {"type": "system_event", "data": msg.metadata}
+                    )
+                else:
+                    await websocket.send_json(
+                        {"type": "chat_message", "data": msg.model_dump(mode="json")}
+                    )
             except Exception:
                 logger.debug(f"Failed to send to {client_id}")
 
@@ -51,11 +56,18 @@ def setup_websocket(app: FastAPI, state):
                 data = json.loads(raw)
 
                 if data.get("type") == "chat_message":
+                    raw_to = data.get("to")
+                    if isinstance(raw_to, list) and raw_to:
+                        to = raw_to
+                    elif isinstance(raw_to, str) and raw_to and raw_to != "all":
+                        to = [raw_to]
+                    else:
+                        to = None
                     msg = ChatMessage(
                         room_id=room_id,
                         from_type="human",
                         from_name=data.get("from_name", "user"),
-                        to=data.get("to", "all"),
+                        to=to,
                         content=data["content"],
                     )
                     await state.db.save_message(msg)

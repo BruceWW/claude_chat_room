@@ -95,4 +95,47 @@ def setup_routes(app_state):
             f.write(req.content)
         return {"status": "saved"}
 
+    @router.delete("/rooms/{room_id}/messages")
+    async def clear_messages(room_id: str):
+        await app_state.db.clear_all(room_id)
+        await app_state.agent_manager.stop_all()
+        for state in app_state.agent_manager.agents.values():
+            state.session_id = None
+        await app_state.agent_manager.start_all()
+        event = ChatMessage(
+            room_id=room_id,
+            from_type="system",
+            from_name="system",
+            content="messages_cleared",
+            metadata={"event": "messages_cleared"},
+        )
+        await app_state.bus.publish(event)
+        return {"ok": True}
+
+    @router.post("/restart")
+    async def restart_service():
+        try:
+            with open(app_state.config_path) as f:
+                raw = yaml.safe_load(f.read())
+            new_config = AppConfig(**raw)
+        except Exception as e:
+            raise HTTPException(400, f"Config error: {e}")
+
+        # Stop and remove all existing agents
+        await app_state.agent_manager.stop_all()
+        for name in list(app_state.agent_manager.agents):
+            app_state.agent_manager.remove_agent(name)
+
+        # Apply new room config
+        app_state.room_config = new_config.room
+        app_state.control.config = new_config.room
+        app_state.control._turn_counts.clear()
+
+        # Re-register and start agents from new config
+        for agent_config in new_config.agents:
+            app_state.agent_manager.add_agent(agent_config)
+        await app_state.agent_manager.start_all()
+
+        return {"status": "restarted"}
+
     return router

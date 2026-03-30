@@ -1,5 +1,146 @@
 import { useState, useEffect } from "react";
 
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  room: { name: string; max_turns_per_round: number; cooldown_seconds: number };
+  agents: Array<{
+    name: string;
+    system_prompt: string;
+    model: string;
+    permission_mode: string;
+    allowed_tools: string;
+  }>;
+}
+
+const TEMPLATES: Template[] = [
+  {
+    id: "dev-team",
+    name: "开发团队",
+    description: "PM + 架构师 + 前端 + 后端 + QA，完整研发团队",
+    room: { name: "dev-team", max_turns_per_round: 5, cooldown_seconds: 3 },
+    agents: [
+      {
+        name: "pm",
+        system_prompt: "You are the Product Manager (pm) in a 5-person dev team chatroom. Your teammates: architect (technical design and system architecture), frontend (React/TypeScript UI implementation), backend (Python/FastAPI server implementation), qa (test cases, edge cases, and quality sign-off). Your responsibilities: Own the requirements. Clarify ambiguity before anyone writes code. Write user stories with clear acceptance criteria. Prioritize ruthlessly. Say no to scope creep. Mediate when frontend/backend disagree on product behavior. Give final sign-off on whether a feature is ready to ship (after qa approves). Address teammates by name when delegating or asking questions. IMPORTANT CONSTRAINTS: You cannot write, edit, or implement code yourself. You have no coding ability. All implementation tasks MUST be delegated via @mention to the appropriate teammate (architect for design, frontend for UI code, backend for server code, qa for testing). If you find yourself about to write code or edit files, stop and @mention the right person instead.",
+        model: "claude-opus-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+      {
+        name: "architect",
+        system_prompt: "You are the Software Architect (architect) in a 5-person dev team chatroom. Your teammates: pm (product requirements and prioritization), frontend (React/TypeScript UI implementation), backend (Python/FastAPI server implementation), qa (test cases, edge cases, and quality sign-off). Your responsibilities: Translate pm's requirements into technical designs before implementation starts. Define API contracts between frontend and backend. Set coding standards, patterns, and tech stack decisions. Identify technical risks and propose mitigations. Unblock frontend and backend when they hit architectural decisions. Address teammates by name. Be decisive — avoid analysis paralysis.",
+        model: "claude-opus-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+      {
+        name: "frontend",
+        system_prompt: "You are the Frontend Developer (frontend) in a 5-person dev team chatroom. Your teammates: pm (product requirements and prioritization), architect (technical designs and API contracts), backend (Python/FastAPI server implementation), qa (test cases, edge cases, and quality sign-off). Your responsibilities: Implement UI components in React/TypeScript based on architect's design. Consume API contracts defined by architect, coordinate with backend on integration. Own UX quality: loading states, error handling, responsiveness. Flag UI/UX concerns to pm before implementation, not after. Scope: web layer only. Do not touch server code. Address teammates by name when you need API changes or requirements clarification.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "acceptEdits",
+        allowed_tools: "",
+      },
+      {
+        name: "backend",
+        system_prompt: "You are the Backend Developer (backend) in a 5-person dev team chatroom. Your teammates: pm (product requirements and prioritization), architect (technical designs and API contracts), frontend (React/TypeScript UI implementation), qa (test cases, edge cases, and quality sign-off). Your responsibilities: Implement API endpoints and business logic in Python/FastAPI. Own data models, database interactions, and service-layer logic. Implement the API contracts defined by architect. Raise feasibility concerns to architect before committing to an approach. Scope: server layer only. Do not touch frontend code. Address teammates by name when API contracts need negotiation or requirements are unclear.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "acceptEdits",
+        allowed_tools: "",
+      },
+      {
+        name: "qa",
+        system_prompt: "You are the QA Engineer (qa) in a 5-person dev team chatroom. Your teammates: pm (product requirements and acceptance criteria), architect (technical design and system boundaries), frontend (React/TypeScript UI implementation), backend (Python/FastAPI server implementation). Your responsibilities: Write test cases covering happy path, edge cases, and failure scenarios. Think like an adversarial user — try to break things. Verify that implementation matches pm's acceptance criteria. Catch integration issues between frontend and backend. Block sign-off if critical issues are unresolved. Be explicit about what must be fixed vs. what can be tracked as debt. Address teammates by name when filing issues. Be specific: what you tested, what you expected, what actually happened.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+    ],
+  },
+  {
+    id: "code-review",
+    name: "代码审查",
+    description: "作者 + 审查员，适合 PR review 和代码质量把关",
+    room: { name: "code-review", max_turns_per_round: 4, cooldown_seconds: 2 },
+    agents: [
+      {
+        name: "author",
+        system_prompt: "You are the code author. Explain your implementation choices, defend design decisions when challenged, and revise code based on valid feedback. Be open but not a pushover.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "acceptEdits",
+        allowed_tools: "",
+      },
+      {
+        name: "reviewer",
+        system_prompt: "You are a senior code reviewer. Check for bugs, security issues, performance problems, and maintainability. Be constructive but thorough. Focus on what matters most.",
+        model: "claude-opus-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+    ],
+  },
+  {
+    id: "research-team",
+    name: "研究助手",
+    description: "研究员 + 批评者，适合技术调研和方案评估",
+    room: { name: "research", max_turns_per_round: 4, cooldown_seconds: 2 },
+    agents: [
+      {
+        name: "researcher",
+        system_prompt: "You are a technical researcher. Investigate topics deeply, gather evidence, and propose solutions with pros/cons analysis. Be thorough and cite your reasoning.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+      {
+        name: "critic",
+        system_prompt: "You are a constructive critic. Challenge assumptions, identify blind spots, ask hard questions, and stress-test proposals. Your goal is to make ideas stronger, not kill them.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+    ],
+  },
+  {
+    id: "data-team",
+    name: "数据分析团队",
+    description: "数据工程师 + 分析师，适合数据管道和洞察挖掘",
+    room: { name: "data-team", max_turns_per_round: 4, cooldown_seconds: 2 },
+    agents: [
+      {
+        name: "data-engineer",
+        system_prompt: "You are a data engineer. Design and build data pipelines, optimize SQL/PySpark queries, manage data quality and schemas. Focus on reliability and performance.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "acceptEdits",
+        allowed_tools: "",
+      },
+      {
+        name: "analyst",
+        system_prompt: "You are a data analyst. Explore datasets, identify patterns, generate insights, and communicate findings clearly. Turn raw data into actionable conclusions.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "default",
+        allowed_tools: "Read, Glob, Grep",
+      },
+    ],
+  },
+  {
+    id: "solo-debug",
+    name: "单 Agent 调试",
+    description: "全权限单 Agent，适合快速调试和原型验证",
+    room: { name: "debug", max_turns_per_round: 10, cooldown_seconds: 1 },
+    agents: [
+      {
+        name: "debugger",
+        system_prompt: "You are an expert debugger. Diagnose issues systematically, read error messages carefully, form hypotheses, test them, and fix root causes rather than symptoms.",
+        model: "claude-sonnet-4-6",
+        permission_mode: "bypassPermissions",
+        allowed_tools: "",
+      },
+    ],
+  },
+];
+
 interface AgentForm {
   name: string;
   directory: string;
@@ -13,6 +154,7 @@ interface RoomForm {
   name: string;
   max_turns_per_round: number;
   cooldown_seconds: number;
+  global_system_prompt: string;
 }
 
 interface Props {
@@ -49,7 +191,7 @@ const emptyAgent = (): AgentForm => ({
 function parseYaml(content: string): { room: RoomForm; agents: AgentForm[] } {
   // Simple YAML parser for our known structure — relies on the API for real validation
   const lines = content.split("\n");
-  const room: RoomForm = { name: "", max_turns_per_round: 3, cooldown_seconds: 2 };
+  const room: RoomForm = { name: "", max_turns_per_round: 3, cooldown_seconds: 2, global_system_prompt: "" };
   const agents: AgentForm[] = [];
   let section = "";
   let currentAgent: AgentForm | null = null;
@@ -66,6 +208,7 @@ function parseYaml(content: string): { room: RoomForm; agents: AgentForm[] } {
         if (key === "name") room.name = val;
         if (key === "max_turns_per_round") room.max_turns_per_round = parseInt(val) || 3;
         if (key === "cooldown_seconds") room.cooldown_seconds = parseInt(val) || 2;
+        if (key === "global_system_prompt") room.global_system_prompt = val;
       }
     }
 
@@ -105,6 +248,7 @@ function toYaml(room: RoomForm, agents: AgentForm[]): string {
   s += `  name: "${room.name}"\n`;
   s += `  max_turns_per_round: ${room.max_turns_per_round}\n`;
   s += `  cooldown_seconds: ${room.cooldown_seconds}\n`;
+  if (room.global_system_prompt) s += `  global_system_prompt: "${room.global_system_prompt}"\n`;
   s += `\n`;
   if (agents.length === 0) {
     s += `agents: []\n`;
@@ -127,12 +271,40 @@ function toYaml(room: RoomForm, agents: AgentForm[]): string {
 
 export function ConfigEditor({ open, onClose }: Props) {
   const [tab, setTab] = useState<"form" | "yaml">("form");
-  const [room, setRoom] = useState<RoomForm>({ name: "", max_turns_per_round: 3, cooldown_seconds: 2 });
+  const [room, setRoom] = useState<RoomForm>({ name: "", max_turns_per_round: 3, cooldown_seconds: 2, global_system_prompt: "" });
   const [agents, setAgents] = useState<AgentForm[]>([]);
   const [yamlContent, setYamlContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [restartDone, setRestartDone] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showTemplates) return;
+    const handler = () => setShowTemplates(false);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [showTemplates]);
+
+  const applyTemplate = (tpl: Template) => {
+    const newRoom = { ...tpl.room, global_system_prompt: "" };
+    const newAgents: AgentForm[] = tpl.agents.map((a) => ({
+      ...emptyAgent(),
+      name: a.name,
+      system_prompt: a.system_prompt,
+      model: a.model,
+      permission_mode: a.permission_mode,
+      allowed_tools: a.allowed_tools,
+    }));
+    setRoom(newRoom);
+    setAgents(newAgents);
+    setYamlContent(toYaml(newRoom, newAgents));
+    setSaved(false);
+    setShowTemplates(false);
+  };
 
   useEffect(() => {
     if (open) {
@@ -197,6 +369,8 @@ export function ConfigEditor({ open, onClose }: Props) {
     setSaving(true);
     setError(null);
     setSaved(false);
+    setRestartDone(false);
+    setRestartError(null);
     const content = tab === "yaml" ? yamlContent : toYaml(room, agents);
     try {
       const resp = await fetch("/api/config", {
@@ -214,6 +388,25 @@ export function ConfigEditor({ open, onClose }: Props) {
       setError("Network error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    setRestartError(null);
+    setRestartDone(false);
+    try {
+      const resp = await fetch("/api/restart", { method: "POST" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        setRestartError(data.detail || "Restart failed");
+      } else {
+        setRestartDone(true);
+      }
+    } catch {
+      setRestartError("Network error");
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -247,7 +440,7 @@ export function ConfigEditor({ open, onClose }: Props) {
       >
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             {(["form", "yaml"] as const).map((t) => (
               <button
                 key={t}
@@ -265,6 +458,63 @@ export function ConfigEditor({ open, onClose }: Props) {
                 {t === "form" ? "Form" : "YAML"}
               </button>
             ))}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowTemplates((v) => !v); }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #4A9EFF44",
+                  background: showTemplates ? "#1a3a5c" : "transparent",
+                  color: "#4A9EFF",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  marginLeft: 4,
+                }}
+              >
+                Templates ▾
+              </button>
+              {showTemplates && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    background: "#1a1a1a",
+                    border: "1px solid #333",
+                    borderRadius: 6,
+                    width: 280,
+                    zIndex: 200,
+                    overflow: "hidden",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      onClick={() => applyTemplate(tpl)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        padding: "10px 14px",
+                        background: "transparent",
+                        border: "none",
+                        borderBottom: "1px solid #2a2a2a",
+                        color: "#ddd",
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#252525")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#fff" }}>{tpl.name}</div>
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{tpl.description}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -306,6 +556,15 @@ export function ConfigEditor({ open, onClose }: Props) {
                       onChange={(e) => updateRoom({ cooldown_seconds: parseInt(e.target.value) || 0 })}
                     />
                   </div>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label style={labelStyle}>Global System Prompt (prepended to all agents)</label>
+                  <textarea
+                    style={{ ...inputStyle, height: 72, resize: "vertical", fontFamily: "monospace" }}
+                    value={room.global_system_prompt}
+                    onChange={(e) => updateRoom({ global_system_prompt: e.target.value })}
+                    placeholder="Optional. Applied before each agent's own system prompt."
+                  />
                 </div>
               </fieldset>
 
@@ -446,11 +705,15 @@ export function ConfigEditor({ open, onClose }: Props) {
         {error && (
           <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 8 }}>{error}</div>
         )}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-          {saved && (
-            <span style={{ color: "#51CF66", fontSize: 13, alignSelf: "center" }}>
-              Saved! Restart server to apply.
-            </span>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12, alignItems: "center" }}>
+          {restartDone && (
+            <span style={{ color: "#51CF66", fontSize: 13 }}>Service restarted!</span>
+          )}
+          {restartError && !restartDone && (
+            <span style={{ color: "#FF6B6B", fontSize: 13 }}>{restartError}</span>
+          )}
+          {saved && !restartDone && (
+            <span style={{ color: "#aaa", fontSize: 13 }}>Saved!</span>
           )}
           <button
             onClick={onClose}
@@ -464,6 +727,21 @@ export function ConfigEditor({ open, onClose }: Props) {
             }}
           >
             Close
+          </button>
+          <button
+            onClick={handleRestart}
+            disabled={restarting}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 4,
+              border: "1px solid #4A9EFF",
+              background: restarting ? "#1a3a5c" : "transparent",
+              color: restartDone ? "#51CF66" : "#4A9EFF",
+              cursor: restarting ? "wait" : "pointer",
+              opacity: restarting ? 0.7 : 1,
+            }}
+          >
+            {restarting ? "Restarting..." : restartDone ? "Restarted!" : "Restart Service"}
           </button>
           <button
             onClick={handleSave}

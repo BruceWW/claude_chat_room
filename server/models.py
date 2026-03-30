@@ -21,14 +21,14 @@ class ChatMessage(BaseModel):
     from_type: str  # "agent" | "human"
     from_name: str
     from_directory: Optional[str] = None
-    to: str = "all"  # "all" | agent_name
+    to: list[str] | None = None  # None = broadcast; ["agent_name", ...] = targeted
     content: str
     timestamp: datetime = Field(default_factory=_now)
     metadata: dict = Field(default_factory=dict)
 
     @property
     def is_broadcast(self) -> bool:
-        return self.to == "all"
+        return self.to is None
 
 
 class AgentConfig(BaseModel):
@@ -44,6 +44,7 @@ class RoomConfig(BaseModel):
     name: str
     max_turns_per_round: int = 3
     cooldown_seconds: int = 2
+    global_system_prompt: Optional[str] = None
 
 
 class AppConfig(BaseModel):
