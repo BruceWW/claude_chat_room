@@ -1,17 +1,20 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import type { ChatMessage, AgentStatus, WSMessage } from "../types";
+import type { ChatMessage, AgentStatus, PermissionRequest, WSMessage } from "../types";
 
 interface UseWebSocketReturn {
   messages: ChatMessage[];
   agents: AgentStatus[];
   connected: boolean;
+  permissionRequests: PermissionRequest[];
   sendMessage: (content: string, to?: string[] | null) => void;
+  respondPermission: (requestId: string, allowed: boolean, message?: string) => void;
   clearMessages: () => void;
 }
 
 export function useWebSocket(roomId: string): UseWebSocketReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
+  const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [reconnectTick, setReconnectTick] = useState(0);
@@ -40,6 +43,9 @@ export function useWebSocket(roomId: string): UseWebSocketReturn {
         );
       } else if (msg.type === "agent_status") {
         setAgents(msg.data as AgentStatus[]);
+      } else if (msg.type === "permission_request") {
+        const req = msg.data as PermissionRequest;
+        setPermissionRequests((prev) => [...prev, req]);
       } else if (msg.type === "system_event") {
         const event = msg.data as { event: string };
         if (event?.event === "messages_cleared") {
@@ -69,9 +75,26 @@ export function useWebSocket(roomId: string): UseWebSocketReturn {
     []
   );
 
+  const respondPermission = useCallback(
+    (requestId: string, allowed: boolean, message?: string) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "permission_response",
+            request_id: requestId,
+            allowed,
+            message: message || "",
+          })
+        );
+      }
+      setPermissionRequests((prev) => prev.filter((r) => r.id !== requestId));
+    },
+    []
+  );
+
   const clearMessages = useCallback(() => {
     setMessages([]);
   }, []);
 
-  return { messages, agents, connected, sendMessage, clearMessages };
+  return { messages, agents, connected, permissionRequests, sendMessage, respondPermission, clearMessages };
 }

@@ -38,8 +38,17 @@ def setup_websocket(app: FastAPI, state):
             except Exception:
                 pass
 
+        async def send_raw(data: dict):
+            try:
+                await websocket.send_json(data)
+            except Exception:
+                pass
+
         # Subscribe to message bus
-        state.bus.subscribe(client_id, send_to_client, is_websocket=True, status_handler=send_status)
+        state.bus.subscribe(
+            client_id, send_to_client, is_websocket=True,
+            status_handler=send_status, raw_handler=send_raw,
+        )
 
         # Send current agent statuses
         statuses = state.agent_manager.get_all_status()
@@ -55,7 +64,9 @@ def setup_websocket(app: FastAPI, state):
                 raw = await websocket.receive_text()
                 data = json.loads(raw)
 
-                if data.get("type") == "chat_message":
+                msg_type = data.get("type")
+
+                if msg_type == "chat_message":
                     raw_to = data.get("to")
                     if isinstance(raw_to, list) and raw_to:
                         to = raw_to
@@ -73,6 +84,13 @@ def setup_websocket(app: FastAPI, state):
                     await state.db.save_message(msg)
                     state.control.on_human_message()
                     await state.bus.publish(msg)
+
+                elif msg_type == "permission_response":
+                    state.agent_manager.resolve_permission(
+                        data["request_id"],
+                        data["allowed"],
+                        data.get("message", ""),
+                    )
 
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected: {client_id}")

@@ -135,7 +135,7 @@ React UI  <-->  FastAPI Server  <-->  Claude Code SDK agents
 
 ## TODO
 
-- [ ] **权限请求转发到页面审批** — agent 遇到需要授权的操作时，通过 WebSocket 推送到前端，人类在页面上批准/拒绝。目前受限于 Python SDK 的 `can_use_tool` 回调有已知 bug（[#159](https://github.com/anthropics/claude-agent-sdk-python/issues/159)），等 SDK 稳定后实现。当前 workaround：用 `permission_mode: acceptEdits` + `allowed_tools` 预批准常用工具。
+- [x] **权限请求转发到页面审批** — `permission_mode: "default"` 的 agent 遇到需要授权的工具调用时，通过 WebSocket 推送 `permission_request` 到前端，弹出审批卡片（显示 agent 名、工具名、参数），人类点 Allow / Deny。120 秒超时自动 Deny。基于 SDK 的 `can_use_tool` 回调实现（[#159](https://github.com/anthropics/claude-agent-sdk-python/issues/159) 已修复）。
 - [ ] **多房间支持** — 目前只有一个默认房间，计划支持 config.yaml 静态配置多房间 + 前端侧边栏切换
 - [ ] **agent 状态实时推送** — thinking 指示器通过 WebSocket 实时更新
 - [ ] **@mention 中间输入修复** — 受控 textarea 在文本中间输入 `@` 时 selectionStart 可能因 re-render 偏移，影响 mention 触发（已知 edge case，低频）

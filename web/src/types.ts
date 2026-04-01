@@ -18,7 +18,15 @@ export interface AgentStatus {
   session_id: string | null;
 }
 
+export interface PermissionRequest {
+  id: string;
+  agent_name: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  timestamp: string;
+}
+
 export interface WSMessage {
-  type: "chat_message" | "agent_status" | "system_event" | "connected";
+  type: "chat_message" | "agent_status" | "system_event" | "permission_request" | "connected";
   data: unknown;
 }

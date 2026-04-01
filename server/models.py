@@ -58,3 +58,17 @@ class AgentStatus(BaseModel):
     online: bool = False
     thinking: bool = False
     session_id: Optional[str] = None
+
+
+class PermissionRequest(BaseModel):
+    id: str = Field(default_factory=lambda: f"perm_{uuid.uuid4().hex[:12]}")
+    agent_name: str
+    tool_name: str
+    tool_input: dict = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=_now)
+
+
+class PermissionResponse(BaseModel):
+    request_id: str
+    allowed: bool
+    message: str = ""

@@ -4,9 +4,10 @@ import { AgentList } from "./AgentList";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
 import { ConfigEditor } from "./ConfigEditor";
+import { PermissionDialog } from "./PermissionDialog";
 
 export function ChatRoom() {
-  const { messages, agents, connected, sendMessage, clearMessages } = useWebSocket("default");
+  const { messages, agents, connected, permissionRequests, sendMessage, respondPermission, clearMessages } = useWebSocket("default");
   const bottomRef = useRef<HTMLDivElement>(null);
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -98,6 +99,7 @@ export function ChatRoom() {
         <MessageInput agents={agents} onSend={sendMessage} />
       </div>
       <ConfigEditor open={configOpen} onClose={() => setConfigOpen(false)} />
+      <PermissionDialog requests={permissionRequests} onRespond={respondPermission} />
     </div>
   );
 }

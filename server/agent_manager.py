@@ -6,7 +6,7 @@ import os
 import re
 from typing import Optional
 
-from server.models import AgentConfig, ChatMessage, AgentStatus
+from server.models import AgentConfig, ChatMessage, AgentStatus, PermissionRequest
 from server.message_bus import MessageBus
 from server.conversation_control import ConversationControl
 from server.database import Database
@@ -69,6 +69,12 @@ class AgentManager:
         self.control = control
         self.room_id = room_id
         self.agents: dict[str, AgentState] = {}
+        self._pending_permissions: dict[str, asyncio.Future] = {}
+
+    def resolve_permission(self, request_id: str, allowed: bool, message: str = ""):
+        future = self._pending_permissions.pop(request_id, None)
+        if future and not future.done():
+            future.set_result((allowed, message))
 
     def add_agent(self, config: AgentConfig):
         state = AgentState(config)
@@ -279,7 +285,10 @@ class AgentManager:
 
     async def _call_sdk(self, state: AgentState, prompt: str) -> str:
         try:
-            from claude_code_sdk import query, ClaudeCodeOptions
+            from claude_code_sdk import (
+                query, ClaudeCodeOptions,
+                PermissionResultAllow, PermissionResultDeny, ToolPermissionContext,
+            )
         except ImportError:
             logger.error("claude-code-sdk not installed")
             return "[SDK not available]"
@@ -293,6 +302,37 @@ class AgentManager:
             options.permission_mode = "acceptEdits"
         if state.config.allowed_tools:
             options.allowed_tools = state.config.allowed_tools
+
+        # For default permission mode, forward permission requests to the UI
+        if state.config.permission_mode == "default":
+            async def _permission_callback(
+                tool_name: str,
+                tool_input: dict,
+                context: ToolPermissionContext,
+            ) -> PermissionResultAllow | PermissionResultDeny:
+                req = PermissionRequest(
+                    agent_name=state.name,
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                )
+                future: asyncio.Future = asyncio.get_event_loop().create_future()
+                self._pending_permissions[req.id] = future
+                await self.bus.publish_raw({
+                    "type": "permission_request",
+                    "data": req.model_dump(mode="json"),
+                })
+                logger.info(f"{state.name}: permission request {req.id} for {tool_name}")
+                try:
+                    allowed, message = await asyncio.wait_for(future, timeout=120)
+                except asyncio.TimeoutError:
+                    self._pending_permissions.pop(req.id, None)
+                    logger.info(f"{state.name}: permission {req.id} timed out, denying")
+                    return PermissionResultDeny(message="Permission request timed out")
+                if allowed:
+                    return PermissionResultAllow()
+                return PermissionResultDeny(message=message or "Denied by user")
+
+            options.can_use_tool = _permission_callback
 
         if state.session_id:
             options.resume = state.session_id
