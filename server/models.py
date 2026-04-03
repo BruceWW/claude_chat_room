@@ -36,7 +36,7 @@ class AgentConfig(BaseModel):
     directory: str
     system_prompt: Optional[str] = None
     model: Optional[str] = None
-    permission_mode: str = "default"  # default | acceptEdits | bypassPermissions
+    permission_mode: str = "acceptEdits"  # default | acceptEdits | bypassPermissions
     allowed_tools: list[str] = Field(default_factory=list)  # e.g. ["Read", "Glob", "Grep"]
 
 
